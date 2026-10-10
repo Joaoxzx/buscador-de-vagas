@@ -50,6 +50,18 @@ FORA_DA_AREA = re.compile(
 BACK_OU_FULL = re.compile(r"back.?end|full.?stack|node|\bapi", re.I)
 NIVEL_JUNIOR = re.compile(r"j[úu]nior|\bjr\b|est[áa]gi|trainee|\bi\b", re.I)
 SO_EXTERIOR = re.compile(r"somente (eua|usa|eua/canad[áa])|only us|usa only", re.I)
+ESTAGIO = re.compile(r"est[áa]gi|trainee", re.I)
+
+# Stack que você usa, e linguagens que você não usa
+MINHA_STACK = re.compile(
+    r"\bnode|typescript|javascript|\bjs\b|\bts\b|fastify|\bexpress\b|nest\.?js|prisma|next\.?js|\breact\b",
+    re.I,
+)
+OUTRA_STACK = re.compile(
+    r"\bjava\b|kotlin|\bspring\b|\.net\b|c#|\bphp\b|laravel|\bruby\b|\brails\b|golang|\bgo\b|delphi|cobol|abap"
+    r"|elixir|\bscala\b|\brust\b|c\+\+",
+    re.I,
+)
 
 TIPOS_GUPY = {
     "vacancy_type_effective": "CLT",
@@ -66,6 +78,24 @@ def na_area(titulo):
     if not DESENVOLVIMENTO.search(titulo):
         return False
     return not (FORA_DA_AREA.search(titulo) and not BACK_OU_FULL.search(titulo))
+
+
+def classificar_stack(titulo, texto):
+    """Devolve a etiqueta da stack, ou None quando a vaga é de outra linguagem e deve ficar de fora.
+
+    Estágio e trainee com outra linguagem ficam, porque nesses a empresa costuma ensinar.
+    """
+    if OUTRA_STACK.search(titulo) and not MINHA_STACK.search(titulo):
+        return "outra stack" if ESTAGIO.search(titulo) else None
+    minha = MINHA_STACK.search(titulo) or MINHA_STACK.search(texto)
+    outra = OUTRA_STACK.search(texto)
+    if minha and outra:
+        return "stack mista"
+    if minha:
+        return "sua stack ✅"
+    if outra:
+        return "outra stack" if ESTAGIO.search(titulo) else None
+    return "stack não informada"
 
 
 def baixar(url):
@@ -93,6 +123,9 @@ def buscar_gupy():
                 continue
             if NIVEL_ALTO.search(titulo) or not na_area(titulo):
                 continue
+            stack = classificar_stack(titulo, v.get("description") or "")
+            if stack is None:
+                continue
             if remoto:
                 local = "Remoto"
             else:
@@ -105,6 +138,7 @@ def buscar_gupy():
                 "tipo": TIPOS_GUPY.get(v.get("type"), "não informado"),
                 "url": v.get("jobUrl", ""),
                 "fonte": "Gupy",
+                "stack": stack,
             })
         time.sleep(2)  # sem pressa, para não sobrecarregar o site
     return vagas
@@ -131,6 +165,9 @@ def buscar_github():
             em_franca = re.search(r"\bfranca\b", titulo, re.I)
             if not (remoto or em_franca) or SO_EXTERIOR.search(titulo):
                 continue
+            stack = classificar_stack(titulo, (item.get("body") or "") + " " + " ".join(etiquetas))
+            if stack is None:
+                continue
             contratos = [c for c in ("CLT", "PJ", "Estágio") if c.lower() in etiquetas]
             vagas.append({
                 "id": f"github:{repo}#{item['number']}",
@@ -140,6 +177,7 @@ def buscar_github():
                 "tipo": ", ".join(contratos) or "não informado",
                 "url": item["html_url"],
                 "fonte": "GitHub",
+                "stack": stack,
             })
     return vagas
 
@@ -160,7 +198,7 @@ def limpar(texto):
 
 def montar_mensagens(vagas):
     blocos = [
-        f"**{limpar(v['titulo'])}**\n{limpar(v['empresa'])} · {v['local']} · {v['tipo']} · {v['fonte']}\n<{v['url']}>"
+        f"**{limpar(v['titulo'])}**\n{limpar(v['empresa'])} · {v['local']} · {v['tipo']} · {v['stack']} · {v['fonte']}\n<{v['url']}>"
         for v in vagas
     ]
     mensagens, atual = [], f"**{len(vagas)} vaga(s) nova(s)**"
@@ -191,7 +229,8 @@ def main():
     encontradas = {v["id"]: v for v in buscar_gupy() + buscar_github()}
     vistas = {linha[0] for linha in banco.execute("SELECT id FROM vistas")}
     novas = [v for i, v in encontradas.items() if i not in vistas]
-    novas.sort(key=lambda v: not NIVEL_JUNIOR.search(v["titulo"]))  # júnior e estágio primeiro
+    # sua stack primeiro; dentro de cada grupo, júnior e estágio primeiro
+    novas.sort(key=lambda v: (not v["stack"].startswith("sua stack"), not NIVEL_JUNIOR.search(v["titulo"])))
     enviar_agora = novas[:MAX_POR_EXECUCAO]
     print(f"{len(encontradas)} vagas no filtro, {len(novas)} novas, {len(enviar_agora)} para enviar agora.")
 

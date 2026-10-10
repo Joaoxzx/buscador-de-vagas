@@ -10,7 +10,8 @@ Gupy + GitHub  →  filtro (nível, local, área)  →  SQLite (já enviadas?)  
 
 - **Fontes:** a página de busca do portal da Gupy (8 termos, como "desenvolvedor back-end", "desenvolvedor full stack" e "estágio desenvolvimento") e as issues abertas de [backend-br/vagas](https://github.com/backend-br/vagas), pela API pública do GitHub.
 - **Filtro:** só vagas remotas ou em Franca-SP, só de desenvolvimento back-end ou full stack, e sem pleno, sênior, especialista ou lead. Vagas só de front-end, mobile, QA, design ou suporte ficam de fora. Vaga sem nível no título entra, para decidir na hora.
-- **Prioridade:** vagas com júnior, estágio, trainee ou "nível I" no título aparecem primeiro.
+- **Stack:** o script lê a descrição da vaga (Gupy) ou o texto e as etiquetas (GitHub). Vaga de outra linguagem (Java, .NET, PHP, Go…) sem Node ou TypeScript fica de fora, exceto estágio e trainee, em que a empresa costuma ensinar. Cada vaga chega marcada como "sua stack", "stack mista" ou "stack não informada".
+- **Prioridade:** primeiro as da sua stack; dentro de cada grupo, as com júnior, estágio, trainee ou "nível I" no título.
 - **Sem repetição:** as vagas enviadas ficam num banco SQLite (`vagas.db`). Cada execução manda só as novas, no máximo 15. O que passar disso fica para a próxima.
 
 ## Decisões
@@ -57,4 +58,5 @@ No começo do `buscar_vagas.py`:
 - `TERMOS_GUPY`: o que buscar na Gupy.
 - `REPOS_GITHUB`: repositórios de vagas.
 - `NIVEL_ALTO` e `FORA_DA_AREA`: palavras que tiram a vaga do filtro.
+- `MINHA_STACK` e `OUTRA_STACK`: as linguagens que você usa e as que não usa.
 - A cidade aceita fica em `buscar_gupy` e `buscar_github` (hoje, Franca).
