@@ -12,6 +12,7 @@ Gupy + GitHub  →  filtro (nível, local, área)  →  SQLite (já enviadas?)  
 - **Filtro:** só vagas remotas ou em Franca-SP, só de desenvolvimento back-end ou full stack, e sem pleno, sênior, especialista ou lead. Vagas só de front-end, mobile, QA, design ou suporte ficam de fora. Vaga sem nível no título entra, para decidir na hora.
 - **Stack:** o script lê a descrição da vaga (Gupy) ou o texto e as etiquetas (GitHub). Vaga de outra linguagem (Java, .NET, PHP, Go…) sem Node ou TypeScript fica de fora, exceto estágio e trainee, em que a empresa costuma ensinar. Cada vaga chega marcada como "sua stack", "stack mista" ou "stack não informada".
 - **Prioridade:** primeiro as da sua stack; dentro de cada grupo, as com júnior, estágio, trainee ou "nível I" no título.
+- **Mensagem:** uma só, com um cartão por grupo (sua stack, stack mista, stack não informada e estágio de outra stack) e o título de cada vaga como link.
 - **Sem repetição:** as vagas enviadas ficam num banco SQLite (`vagas.db`). Cada execução manda só as novas, no máximo 15. O que passar disso fica para a próxima.
 
 ## Decisões

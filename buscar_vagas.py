@@ -192,28 +192,55 @@ def abrir_banco():
 
 
 def limpar(texto):
-    # títulos vêm de fora: tira marcação do Discord para não quebrar a mensagem
-    return re.sub(r"[*_`~|>@]", "", texto)
+    # títulos vêm de fora: tira marcação do Discord para não quebrar a mensagem nem o link
+    return re.sub(r"[*_`~|>@\[\]]", "", texto).strip()
+
+
+# Um cartão (embed) por grupo, nesta ordem, com a cor da barra lateral
+GRUPOS = [
+    ("sua stack", "🟢 Sua stack", 0x2ECC71),
+    ("stack mista", "🟡 Stack mista: abra e veja os requisitos", 0xF1C40F),
+    ("stack não informada", "⚪ Stack não informada: abra e veja os requisitos", 0x95A5A6),
+    ("outra stack", "🔵 Estágio de outra stack: a empresa costuma ensinar", 0x3498DB),
+]
+LIMITE_CARTAO = 4000      # o Discord aceita até 4096 caracteres por cartão
+LIMITE_MENSAGEM = 5800    # e até 6000 somando os cartões de uma mensagem
 
 
 def montar_mensagens(vagas):
-    blocos = [
-        f"**{limpar(v['titulo'])}**\n{limpar(v['empresa'])} · {v['local']} · {v['tipo']} · {v['stack']} · {v['fonte']}\n<{v['url']}>"
-        for v in vagas
-    ]
-    mensagens, atual = [], f"**{len(vagas)} vaga(s) nova(s)**"
-    for bloco in blocos:
-        if len(atual) + len(bloco) + 2 > 1900:
+    """Uma mensagem com um cartão por grupo. Só quebra em mais mensagens se passar do limite do Discord."""
+    cartoes = []
+    for chave, nome, cor in GRUPOS:
+        do_grupo = [v for v in vagas if v["stack"].startswith(chave)]
+        partes, atual = [], ""
+        for v in do_grupo:
+            linha = f"**[{limpar(v['titulo'])}]({v['url']})**\n{limpar(v['empresa'])} · {v['local']} · {v['tipo']} · {v['fonte']}"
+            if atual and len(atual) + len(linha) + 2 > LIMITE_CARTAO:
+                partes.append(atual)
+                atual = linha
+            else:
+                atual = f"{atual}\n\n{linha}" if atual else linha
+        if atual:
+            partes.append(atual)
+        for parte in partes:
+            cartoes.append({"title": f"{nome} ({len(do_grupo)})", "description": parte, "color": cor})
+
+    mensagens, atual, tamanho = [], [], 0
+    for cartao in cartoes:
+        peso = len(cartao["title"]) + len(cartao["description"])
+        if atual and (tamanho + peso > LIMITE_MENSAGEM or len(atual) == 10):
             mensagens.append(atual)
-            atual = bloco
-        else:
-            atual += "\n\n" + bloco
-    mensagens.append(atual)
-    return mensagens
+            atual, tamanho = [], 0
+        atual.append(cartao)
+        tamanho += peso
+    if atual:
+        mensagens.append(atual)
+    return [{"content": f"**{len(vagas)} vaga(s) nova(s)**" if i == 0 else "", "embeds": m}
+            for i, m in enumerate(mensagens)]
 
 
-def enviar(webhook, texto):
-    corpo = json.dumps({"content": texto, "allowed_mentions": {"parse": []}}).encode("utf-8")
+def enviar(webhook, mensagem):
+    corpo = json.dumps({**mensagem, "allowed_mentions": {"parse": []}}).encode("utf-8")
     pedido = urllib.request.Request(
         webhook, data=corpo, headers={"Content-Type": "application/json", "User-Agent": "buscar-vagas"}
     )
@@ -238,7 +265,9 @@ def main():
         return
     if teste:
         for mensagem in montar_mensagens(enviar_agora):
-            print("\n" + mensagem)
+            print("\n" + mensagem["content"])
+            for cartao in mensagem["embeds"]:
+                print(f"\n== {cartao['title']}\n{cartao['description']}")
         return
 
     webhook = ARQUIVO_WEBHOOK.read_text().strip()
