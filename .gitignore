@@ -1,0 +1,4 @@
+# Nunca vão para o GitHub: URL do webhook e banco local de vagas já enviadas
+webhook_vagas
+vagas.db
+__pycache__/
