@@ -8,8 +8,8 @@ Gupy + GitHub  →  filtro (nível, local, área)  →  SQLite (já enviadas?)  
 
 ## O que ele faz
 
-- **Fontes:** a página de busca do portal da Gupy (8 termos, como "desenvolvedor back-end", "desenvolvedor full stack" e "estágio desenvolvimento") e as issues abertas de [backend-br/vagas](https://github.com/backend-br/vagas) e [frontendbr/vagas](https://github.com/frontendbr/vagas), pela API pública do GitHub.
-- **Filtro:** só vagas remotas ou em Franca-SP, só de desenvolvimento, e sem pleno, sênior, especialista ou lead. Vaga sem nível no título entra, para decidir na hora.
+- **Fontes:** a página de busca do portal da Gupy (8 termos, como "desenvolvedor back-end", "desenvolvedor full stack" e "estágio desenvolvimento") e as issues abertas de [backend-br/vagas](https://github.com/backend-br/vagas), pela API pública do GitHub.
+- **Filtro:** só vagas remotas ou em Franca-SP, só de desenvolvimento back-end ou full stack, e sem pleno, sênior, especialista ou lead. Vagas só de front-end, mobile, QA, design ou suporte ficam de fora. Vaga sem nível no título entra, para decidir na hora.
 - **Prioridade:** vagas com júnior, estágio, trainee ou "nível I" no título aparecem primeiro.
 - **Sem repetição:** as vagas enviadas ficam num banco SQLite (`vagas.db`). Cada execução manda só as novas, no máximo 15. O que passar disso fica para a próxima.
 
@@ -27,24 +27,27 @@ Gupy + GitHub  →  filtro (nível, local, área)  →  SQLite (já enviadas?)  
 Precisa de Python 3.8 ou mais novo e de um webhook do Discord (no canal: Editar canal → Integrações → Webhooks).
 
 ```bash
-mkdir -p ~/vagas && chmod 700 ~/vagas
-cp buscar_vagas.py ~/vagas/ && chmod 700 ~/vagas/buscar_vagas.py
+git clone https://github.com/Joaoxzx/buscador-de-vagas.git ~/buscador-de-vagas
+mkdir -p ~/vagas && chmod 700 ~/vagas   # banco, webhook e log ficam aqui, fora do repositório
 
 # guarda a URL do webhook sem mostrar na tela
 read -rsp "URL do webhook: " URL; echo "$URL" > ~/vagas/webhook_vagas; chmod 600 ~/vagas/webhook_vagas; unset URL; echo
 
 # teste: só mostra no terminal, não manda nem marca como vista
-python3 ~/vagas/buscar_vagas.py --teste
+python3 ~/buscador-de-vagas/buscar_vagas.py --teste
 
 # de verdade
-python3 ~/vagas/buscar_vagas.py
+python3 ~/buscador-de-vagas/buscar_vagas.py
+
+# atualizar depois de uma mudança no GitHub
+git -C ~/buscador-de-vagas pull
 ```
 
 Agendamento no cron (horário UTC; 11, 15 e 20 UTC são 8h, 12h e 17h em Brasília):
 
 ```
-0 11,15,20 * * 1-5 python3 $HOME/vagas/buscar_vagas.py >> $HOME/vagas/log.txt 2>&1
-0 15 * * 0,6 python3 $HOME/vagas/buscar_vagas.py >> $HOME/vagas/log.txt 2>&1
+0 11,15,20 * * 1-5 python3 $HOME/buscador-de-vagas/buscar_vagas.py >> $HOME/vagas/log.txt 2>&1
+0 15 * * 0,6 python3 $HOME/buscador-de-vagas/buscar_vagas.py >> $HOME/vagas/log.txt 2>&1
 ```
 
 ## Como adaptar
@@ -53,5 +56,5 @@ No começo do `buscar_vagas.py`:
 
 - `TERMOS_GUPY`: o que buscar na Gupy.
 - `REPOS_GITHUB`: repositórios de vagas.
-- `NIVEL_ALTO`: palavras que tiram a vaga do filtro.
+- `NIVEL_ALTO` e `FORA_DA_AREA`: palavras que tiram a vaga do filtro.
 - A cidade aceita fica em `buscar_gupy` e `buscar_github` (hoje, Franca).

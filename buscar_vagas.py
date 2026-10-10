@@ -30,7 +30,7 @@ TERMOS_GUPY = [
     "estágio desenvolvimento",
     "estágio programação",
 ]
-REPOS_GITHUB = ["backend-br/vagas", "frontendbr/vagas"]
+REPOS_GITHUB = ["backend-br/vagas"]
 
 # Título com nível acima de júnior fica de fora
 NIVEL_ALTO = re.compile(
@@ -42,6 +42,12 @@ DESENVOLVIMENTO = re.compile(
     r"desenvolv|developer|programador|engenheir[oa] de software|software engineer|back.?end|full.?stack|est[áa]gi",
     re.I,
 )
+# Vaga só de front-end, mobile, QA, design ou suporte fica de fora (full stack e back-end ficam)
+FORA_DA_AREA = re.compile(
+    r"front.?end|mobile|android|\bios\b|flutter|react native|\bqa\b|design|\bux\b|suporte|\bsap\b|salesforce",
+    re.I,
+)
+BACK_OU_FULL = re.compile(r"back.?end|full.?stack|node|\bapi", re.I)
 NIVEL_JUNIOR = re.compile(r"j[úu]nior|\bjr\b|est[áa]gi|trainee|\bi\b", re.I)
 SO_EXTERIOR = re.compile(r"somente (eua|usa|eua/canad[áa])|only us|usa only", re.I)
 
@@ -54,6 +60,12 @@ TIPOS_GUPY = {
     "vacancy_type_talent_pool": "Banco de talentos",
     "vacancy_type_temporary": "Temporário",
 }
+
+
+def na_area(titulo):
+    if not DESENVOLVIMENTO.search(titulo):
+        return False
+    return not (FORA_DA_AREA.search(titulo) and not BACK_OU_FULL.search(titulo))
 
 
 def baixar(url):
@@ -79,7 +91,7 @@ def buscar_gupy():
             em_franca = (v.get("city") or "").strip().lower() == "franca"
             if not (remoto or em_franca):
                 continue
-            if NIVEL_ALTO.search(titulo) or not DESENVOLVIMENTO.search(titulo):
+            if NIVEL_ALTO.search(titulo) or not na_area(titulo):
                 continue
             if remoto:
                 local = "Remoto"
@@ -113,7 +125,7 @@ def buscar_github():
             etiquetas = {e["name"].lower() for e in item.get("labels", [])}
             junior = bool(etiquetas & {"júnior", "junior", "estágio", "estagio", "trainee"}) or bool(NIVEL_JUNIOR.search(titulo))
             nivel_alto = bool(etiquetas & {"pleno", "sênior", "senior", "especialista"}) or bool(NIVEL_ALTO.search(titulo))
-            if nivel_alto and not junior:
+            if (nivel_alto and not junior) or not na_area(titulo):
                 continue
             remoto = "remoto" in etiquetas or re.search(r"remot", titulo, re.I)
             em_franca = re.search(r"\bfranca\b", titulo, re.I)
