@@ -54,13 +54,14 @@ NIVEL_ALTO = re.compile(
 )
 # Título precisa ser de desenvolvimento
 DESENVOLVIMENTO = re.compile(
-    r"desenvolv|developer|programador|engenheir[oa] de software|software engineer|back.?end|full.?stack|est[áa]gi",
+    r"desenvolv|developer|programador|programação|software|back.?end|full.?stack|\bti\b|sistemas",
     re.I,
 )
 # Vaga só de front-end, mobile, QA, design ou suporte fica de fora (full stack e back-end ficam)
 FORA_DA_AREA = re.compile(
     r"front.?end|mobile|android|\bios\b|flutter|react native|angular|\bvue|\bqa\b|design|\bux\b|suporte|\bsap\b"
-    r"|salesforce|power platform|low.?code|\brpa\b|wordpress",
+    r"|salesforce|power platform|low.?code|\brpa\b|wordpress"
+    r"|desenvolvimento de neg[óo]cios|comercial|vendas|marketing|contab|recursos humanos",
     re.I,
 )
 BACK_OU_FULL = re.compile(r"back.?end|full.?stack|node|\bapi", re.I)
