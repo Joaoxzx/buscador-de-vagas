@@ -34,7 +34,23 @@ BUSCA_EMAIL = "from:(jobalerts-noreply@linkedin.com OR indeed.com) newer_than:3d
 LINKS_GENERICOS = re.compile(r"^(ver vaga|ver todas|candidat|view job|see all|apply|saiba mais|gerenciar|ver mais)", re.I)
 MAX_POR_EXECUCAO = 25  # o que passar disso fica para a próxima execução
 DIAS_MAXIMOS = 30  # vagas publicadas há mais tempo que isso ficam de fora
-LIMITE_DESCRICAO = 4000  # caracteres da descrição guardados por vaga
+LIMITE_DESCRICAO = 2000  # caracteres da descrição guardados por vaga
+# Onde costumam começar os requisitos: a descrição guardada começa daí, e não da apresentação da empresa
+INICIO_REQUISITOS = re.compile(
+    r"requisitos|qualifica[çc][õo]es|o que (buscamos|esperamos|voc[êe] precisa)|pr[ée].?requisitos"
+    r"|o que [ée] (importante|necess[áa]rio)|voc[êe] (precisa|deve) ter|experi[êe]ncia (com|em)|conhecimento",
+    re.I,
+)
+
+
+def resumir_descricao(texto):
+    """Guarda até LIMITE_DESCRICAO caracteres, a partir dos requisitos quando der para achar."""
+    texto = re.sub(r"\s+", " ", texto or "").strip()
+    if len(texto) <= LIMITE_DESCRICAO:
+        return texto
+    achado = INICIO_REQUISITOS.search(texto)
+    inicio = max(0, achado.start() - 100) if achado else 0
+    return "…" + texto[inicio:inicio + LIMITE_DESCRICAO] if inicio else texto[:LIMITE_DESCRICAO]
 # Arquivo de entrega: as vagas enviadas nos últimos dias, com descrição, para outro programa ler
 # (na VPS, o assistente de IA lê esse arquivo, só com permissão de leitura). Se a pasta não existir, é pulado.
 ARQUIVO_ENTREGA = Path(os.environ.get("VAGAS_ENTREGA", "/srv/vagas-entrega/novas.json"))
@@ -225,7 +241,7 @@ def buscar_gupy():
                 "url": link_curto_gupy(v.get("jobUrl", "")),
                 "fonte": "Gupy",
                 "stack": stack,
-                "descricao": sem_tags(v.get("description"))[:LIMITE_DESCRICAO],
+                "descricao": resumir_descricao(sem_tags(v.get("description"))),
             })
         time.sleep(2)  # sem pressa, para não sobrecarregar o site
     return vagas
@@ -266,7 +282,7 @@ def buscar_github():
                 "url": item["html_url"],
                 "fonte": "GitHub",
                 "stack": stack,
-                "descricao": (item.get("body") or "")[:LIMITE_DESCRICAO],
+                "descricao": resumir_descricao(item.get("body")),
             })
     return vagas
 
@@ -355,7 +371,7 @@ def buscar_remotar():
                 "url": link_curto_gupy(link),
                 "fonte": "Remotar",
                 "stack": stack,
-                "descricao": texto[:LIMITE_DESCRICAO],
+                "descricao": resumir_descricao(texto),
             })
         time.sleep(2)
     return vagas
