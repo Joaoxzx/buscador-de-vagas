@@ -5,6 +5,7 @@ Só script, sem IA. As vagas já enviadas ficam em vagas.db para não repetir.
 Uso: buscar_vagas.py           -> busca e manda no Discord
      buscar_vagas.py --teste   -> só mostra no terminal, não manda nem marca como vista
      buscar_vagas.py --email   -> só mostra o que conseguiu ler dos alertas de e-mail, antes dos filtros
+     buscar_vagas.py --preencher-entrega -> põe no arquivo de entrega todas as vagas do filtro, sem mandar no Discord
 """
 import base64
 import datetime
@@ -500,7 +501,15 @@ def main():
     enviar_agora = novas[:MAX_POR_EXECUCAO]
     print(f"{len(encontradas)} vagas no filtro, {len(novas)} novas, {len(enviar_agora)} para enviar agora.")
 
+    if "--preencher-entrega" in sys.argv:
+        # coloca no arquivo de entrega todas as vagas que passam no filtro agora, mesmo as já enviadas,
+        # sem mandar nada no Discord (serve para testar quem lê o arquivo sem esperar vaga nova)
+        atualizar_entrega(list(encontradas.values()))
+        print(f"Arquivo de entrega atualizado: {ARQUIVO_ENTREGA}")
+        return
     if not enviar_agora:
+        if not teste:
+            atualizar_entrega([])  # só tira as vagas antigas do arquivo de entrega
         return
     if teste:
         for mensagem in montar_mensagens(enviar_agora):
@@ -530,7 +539,9 @@ def atualizar_entrega(vagas):
     except (OSError, ValueError):
         anteriores = []
     limite = agora - datetime.timedelta(days=DIAS_NA_ENTREGA)
-    recentes = [v for v in anteriores if datetime.datetime.fromisoformat(v["enviada_em"]) > limite]
+    novos_ids = {v["id"] for v in vagas}  # a mesma vaga não entra duas vezes no arquivo
+    recentes = [v for v in anteriores
+                if datetime.datetime.fromisoformat(v["enviada_em"]) > limite and v["id"] not in novos_ids]
     recentes += [{**v, "enviada_em": agora.isoformat(timespec="seconds")} for v in vagas]
     # grava num arquivo temporário e troca no fim, para quem estiver lendo nunca pegar o arquivo pela metade
     temporario = ARQUIVO_ENTREGA.with_suffix(".tmp")
