@@ -59,6 +59,8 @@ TERMOS_GUPY = [
     "estágio desenvolvimento",
     "estágio programação",
 ]
+PAGINAS_GUPY = 3  # até 3 páginas de 12 vagas remotas por termo
+TERMOS_GUPY_FRANCA = ["desenvolvedor", "programador", "estágio"]  # presenciais e híbridas em Franca
 REPOS_GITHUB = ["backend-br/vagas"]
 PAGINAS_PROGRAMATHOR = [
     "https://programathor.com.br/jobs?expertise=J%C3%BAnior",
@@ -72,11 +74,17 @@ TERMOS_REMOTAR = [
     "estágio desenvolvimento",
 ]
 
-# Título com nível acima de júnior fica de fora
+# Título com nível acima de pleno fica sempre de fora
 NIVEL_ALTO = re.compile(
-    r"\b(pleno|pl|s[êe]nior|sr|especialista|lead|l[íi]der|coordenador|gerente|staff|master|arquitet[oa]|ii|iii)\b",
+    r"\b(s[êe]nior|sr|especialista|lead|l[íi]der|coordenador|gerente|staff|master|arquitet[oa]|iii)\b",
     re.I,
 )
+# Pleno só entra quando a vaga é da sua stack (lá a chance é real); quem decide se vale tentar é a leitura da descrição
+PLENO = re.compile(r"\b(pleno|pl|ii)\b", re.I)
+
+
+def nivel_aceito(titulo, stack):
+    return not (PLENO.search(titulo) and not stack.startswith("sua stack"))
 # Título precisa ser de desenvolvimento
 DESENVOLVIMENTO = re.compile(
     r"desenvolv|developer|programador|programação|software|back.?end|full.?stack|\bti\b|sistemas",
@@ -159,17 +167,31 @@ def id_gupy(url):
         return None
 
 
-def buscar_gupy():
-    vagas = []
+def paginas_gupy():
+    """Os endereços de busca: cada termo só com vagas remotas (algumas páginas), mais as vagas de Franca."""
+    base = "https://portal.gupy.io/job-search/term="
     for termo in TERMOS_GUPY:
-        url = "https://portal.gupy.io/job-search/term=" + urllib.parse.quote(termo)
+        for pagina in range(1, PAGINAS_GUPY + 1):
+            yield termo, pagina, f"{base}{urllib.parse.quote(termo)}&workplaceTypes[]=remote&page={pagina}"
+    for termo in TERMOS_GUPY_FRANCA:
+        yield termo, 1, f"{base}{urllib.parse.quote(termo)}&city=Franca"
+
+
+def buscar_gupy():
+    vagas, acabou = [], set()
+    for termo, numero, url in paginas_gupy():
+        if (termo, url.endswith("Franca")) in acabou:
+            continue  # a busca anterior desse termo já mostrou todas as vagas
         try:
             pagina = baixar(url)
             dados = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', pagina, re.S)
-            lista = json.loads(dados.group(1))["props"]["pageProps"]["initialJobList"]["data"]
+            resultado = json.loads(dados.group(1))["props"]["pageProps"]["initialJobList"]
+            lista, paginacao = resultado["data"], resultado["pagination"]
         except Exception as erro:
-            print(f"Gupy falhou no termo '{termo}': {erro}", file=sys.stderr)
+            print(f"Gupy falhou no termo '{termo}' (página {numero}): {erro}", file=sys.stderr)
             continue
+        if paginacao["offset"] + paginacao["limit"] >= paginacao["total"]:
+            acabou.add((termo, url.endswith("Franca")))
         for v in lista:
             titulo = v.get("name", "").strip()
             remoto = v.get("workplaceType") == "remote"
@@ -179,7 +201,7 @@ def buscar_gupy():
             if NIVEL_ALTO.search(titulo) or not na_area(titulo):
                 continue
             stack = classificar_stack(titulo, v.get("description") or "")
-            if stack is None:
+            if stack is None or not nivel_aceito(titulo, stack):
                 continue
             if remoto:
                 local = "Remoto"
@@ -214,7 +236,8 @@ def buscar_github():
             titulo = item["title"].strip()
             etiquetas = {e["name"].lower() for e in item.get("labels", [])}
             junior = bool(etiquetas & {"júnior", "junior", "estágio", "estagio", "trainee"}) or bool(NIVEL_JUNIOR.search(titulo))
-            nivel_alto = bool(etiquetas & {"pleno", "sênior", "senior", "especialista"}) or bool(NIVEL_ALTO.search(titulo))
+            nivel_alto = bool(etiquetas & {"sênior", "senior", "especialista"}) or bool(NIVEL_ALTO.search(titulo))
+            pleno = "pleno" in etiquetas or bool(PLENO.search(titulo))
             if (nivel_alto and not junior) or not na_area(titulo):
                 continue
             remoto = "remoto" in etiquetas or re.search(r"remot", titulo, re.I)
@@ -222,7 +245,7 @@ def buscar_github():
             if not (remoto or em_franca) or SO_EXTERIOR.search(titulo):
                 continue
             stack = classificar_stack(titulo, (item.get("body") or "") + " " + " ".join(etiquetas))
-            if stack is None:
+            if stack is None or (pleno and not junior and not stack.startswith("sua stack")):
                 continue
             contratos = [c for c in ("CLT", "PJ", "Estágio") if c.lower() in etiquetas]
             vagas.append({
@@ -268,7 +291,7 @@ def buscar_programathor():
             if NIVEL_ALTO.search(titulo) or not na_area(titulo):
                 continue
             stack = classificar_stack(titulo, " ".join(tecnologias))
-            if stack is None:
+            if stack is None or not nivel_aceito(titulo, stack):
                 continue
             vagas.append({
                 "id": "programathor:" + re.search(r"/jobs/(\d+)", link).group(1),
@@ -310,7 +333,7 @@ def buscar_remotar():
             requisitos = " ".join(r.get("description") or "" for r in v.get("jobRequirements") or [])
             texto = " ".join([v.get("subtitle") or "", sem_tags(v.get("description")), requisitos])
             stack = classificar_stack(titulo, texto)
-            if stack is None:
+            if stack is None or not nivel_aceito(titulo, stack):
                 continue
             link = v.get("externalLink") if v.get("isExternalLink") and v.get("externalLink") else f"https://remotar.com.br/job/{v['id']}"
             empresa = (v.get("company") or {}).get("name") or v.get("companyDisplayName") or ""
@@ -400,7 +423,7 @@ def buscar_email():
         if NIVEL_ALTO.search(v["titulo"]) or not na_area(v["titulo"]):
             continue
         stack = classificar_stack(v["titulo"], "")
-        if stack is None:
+        if stack is None or not nivel_aceito(v["titulo"], stack):
             continue
         vagas.append({**v, "local": "Remoto" if remoto else v["local"], "tipo": "não informado", "stack": stack,
                       "descricao": "O alerta de e-mail só traz título, empresa e local."})
