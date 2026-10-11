@@ -13,6 +13,7 @@ Gupy + Remotar + Programathor + GitHub  →  filtro (nível, local, área, stack
   - **Remotar:** vagas remotas no Brasil, pelo mesmo endereço de dados que o site usa na busca. Só vagas dos últimos 30 dias.
   - **Programathor:** só vagas de tecnologia, nas páginas de júnior e estágio. Vagas encerradas ficam de fora.
   - **GitHub:** as issues abertas de [backend-br/vagas](https://github.com/backend-br/vagas), pela API pública.
+  - **Alertas de e-mail (LinkedIn e Indeed):** os dois proíbem robô no site, então o script lê os alertas que eles mandam por e-mail, por IMAP, só os dos últimos 3 dias. Só leitura: a caixa é aberta em modo somente leitura e as mensagens são lidas com `BODY.PEEK`, então nada é marcado como lido, apagado ou respondido. É opcional: sem os arquivos `gmail_usuario` e `gmail_senha_app`, essa parte é pulada.
 - **Sem duplicar entre sites:** muitas vagas do Remotar são da Gupy. O script lê o número da vaga dentro do link da Gupy e reconhece que é a mesma. Vagas com mesma empresa e mesmo título também contam como uma só.
 - **Filtro:** só vagas remotas ou em Franca-SP, só de desenvolvimento back-end ou full stack, e sem pleno, sênior, especialista ou lead. Vagas só de front-end (inclusive Angular e Vue), mobile, QA, design, suporte ou low-code ficam de fora. Vaga sem nível no título entra, para decidir na hora.
 - **Stack:** o script lê a descrição, os requisitos ou as tecnologias de cada vaga, conforme o que o site mostra. Vaga de outra linguagem (Java, .NET, PHP, Go…) sem Node ou TypeScript fica de fora, exceto estágio e trainee, em que a empresa costuma ensinar. Cada vaga chega marcada como "sua stack", "stack mista" ou "stack não informada".
@@ -25,7 +26,7 @@ Gupy + Remotar + Programathor + GitHub  →  filtro (nível, local, área, stack
 - **Por que sem IA:** é uma tarefa fixa, sem julgamento. Script é mais barato, mais rápido e dá sempre o mesmo resultado.
 - **Por que só biblioteca padrão:** roda em qualquer Python 3 sem `pip install`, direto no Python que já vem no Ubuntu.
 - **Sem login e com calma:** o script só lê páginas públicas que os sites permitem no `robots.txt`, espera 2 segundos entre as buscas e roda só 3 vezes por dia. Se um site mudar, ele avisa no log e continua com os outros.
-- **LinkedIn e Indeed ficam de fora do script:** os dois proíbem robô no site. As vagas deles chegam pelos alertas de e-mail.
+- **Usuário Linux separado:** na VPS, o script roda num usuário só dele, sem sudo. A senha de app do Gmail fica na pasta desse usuário, com permissão 600, longe do assistente de IA que roda na mesma máquina.
 - **Segurança:**
   - A URL do webhook fica fora do código, num arquivo com permissão 600 que o `.gitignore` não deixa subir.
   - Títulos de vaga vêm de fora, então o script tira `@` e marcação do Discord e manda `allowed_mentions` vazio. Assim nenhum título consegue mencionar `@everyone` no servidor.

@@ -2,3 +2,5 @@
 webhook_vagas
 vagas.db
 __pycache__/
+gmail_usuario
+gmail_senha_app

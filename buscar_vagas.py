@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Busca vagas novas na Gupy e nos repositórios de vagas do GitHub e manda no #vagas.
+"""Busca vagas novas em vários sites e nos alertas de e-mail e manda no #vagas.
 
 Só script, sem IA. As vagas já enviadas ficam em vagas.db para não repetir.
 Uso: buscar_vagas.py           -> busca e manda no Discord
      buscar_vagas.py --teste   -> só mostra no terminal, não manda nem marca como vista
+     buscar_vagas.py --email   -> só mostra o que conseguiu ler dos alertas de e-mail, antes dos filtros
 """
 import base64
 import datetime
+import email
+import email.policy
+import hashlib
 import html
+import imaplib
 import json
 import os
 import re
@@ -21,6 +26,11 @@ from pathlib import Path
 PASTA = Path(os.environ.get("VAGAS_DIR", Path.home() / "vagas"))
 BANCO = PASTA / "vagas.db"
 ARQUIVO_WEBHOOK = PASTA / "webhook_vagas"
+# Alertas por e-mail (LinkedIn, Indeed): só funciona se esses dois arquivos existirem
+ARQUIVO_GMAIL_USUARIO = PASTA / "gmail_usuario"
+ARQUIVO_GMAIL_SENHA = PASTA / "gmail_senha_app"
+BUSCA_EMAIL = "from:(jobalerts-noreply@linkedin.com OR indeed.com) newer_than:3d"
+LINKS_GENERICOS = re.compile(r"^(ver vaga|ver todas|candidat|view job|see all|apply|saiba mais|gerenciar|ver mais)", re.I)
 MAX_POR_EXECUCAO = 25  # o que passar disso fica para a próxima execução
 DIAS_MAXIMOS = 30  # vagas publicadas há mais tempo que isso ficam de fora
 
@@ -49,7 +59,7 @@ TERMOS_REMOTAR = [
 
 # Título com nível acima de júnior fica de fora
 NIVEL_ALTO = re.compile(
-    r"\b(pleno|pl|s[êe]nior|sr|especialista|lead|l[íi]der|coordenador|gerente|staff|arquitet[oa]|ii|iii)\b",
+    r"\b(pleno|pl|s[êe]nior|sr|especialista|lead|l[íi]der|coordenador|gerente|staff|master|arquitet[oa]|ii|iii)\b",
     re.I,
 )
 # Título precisa ser de desenvolvimento
@@ -105,7 +115,7 @@ def classificar_stack(titulo, texto):
     if OUTRA_STACK.search(titulo) and not MINHA_STACK.search(titulo):
         return "outra stack" if ESTAGIO.search(titulo) else None
     minha = MINHA_STACK.search(titulo) or MINHA_STACK.search(texto)
-    outra = OUTRA_STACK.search(texto)
+    outra = OUTRA_STACK.search(titulo) or OUTRA_STACK.search(texto)
     if minha and outra:
         return "stack mista"
     if minha:
@@ -300,6 +310,83 @@ def buscar_remotar():
     return vagas
 
 
+def pasta_todos_os_emails(imap):
+    """O nome da pasta 'Todos os e-mails' muda com o idioma do Gmail; ela é a que tem a marca \\All."""
+    _, linhas = imap.list()
+    for linha in linhas:
+        texto = linha.decode("utf-8", "replace")
+        if "\\All" in texto:
+            return texto.rsplit(' "/" ', 1)[-1]
+    return "INBOX"
+
+
+def vagas_do_html(corpo, fonte):
+    """Acha os links de vaga num e-mail de alerta e o texto 'Empresa · Local' que vem logo depois de cada um."""
+    padrao_link = r"linkedin\.com/(?:comm/)?jobs/view/(\d+)" if fonte == "LinkedIn" else r"indeed\."
+    links = [m for m in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', corpo, re.S | re.I)
+             if re.search(padrao_link, html.unescape(m.group(1)))]
+    vagas, vistos = [], set()
+    for n, m in enumerate(links):
+        url = html.unescape(m.group(1))
+        titulo = sem_tags(m.group(2))
+        if len(titulo) < 6 or LINKS_GENERICOS.search(titulo):
+            continue
+        fim = links[n + 1].start() if n + 1 < len(links) else len(corpo)
+        linhas = [l.strip() for l in html.unescape(re.sub(r"<[^>]+>", "\n", corpo[m.end():fim])).splitlines() if l.strip()]
+        detalhe = next((l for l in linhas if "·" in l), linhas[0] if linhas else "")
+        empresa, _, local = (p.strip() for p in detalhe.partition("·"))
+        if fonte == "LinkedIn":
+            numero = re.search(padrao_link, url).group(1)
+            id_vaga, url = f"linkedin:{numero}", f"https://www.linkedin.com/jobs/view/{numero}/"
+        else:
+            id_vaga = "indeed:" + hashlib.sha1(f"{titulo}|{empresa}".lower().encode()).hexdigest()[:16]
+        if id_vaga in vistos:
+            continue
+        vistos.add(id_vaga)
+        vagas.append({"id": id_vaga, "titulo": titulo, "empresa": empresa, "local": local, "url": url, "fonte": fonte})
+    return vagas
+
+
+def ler_alertas_email():
+    """Lê os alertas de vaga dos últimos 3 dias. Só leitura: não marca como lido, não apaga, não responde."""
+    if not (ARQUIVO_GMAIL_USUARIO.exists() and ARQUIVO_GMAIL_SENHA.exists()):
+        return [], 0
+    try:
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(ARQUIVO_GMAIL_USUARIO.read_text().strip(), ARQUIVO_GMAIL_SENHA.read_text().strip())
+        imap.select(pasta_todos_os_emails(imap), readonly=True)
+        _, numeros = imap.search(None, "X-GM-RAW", f'"{BUSCA_EMAIL}"')
+        ids = numeros[0].split()[-30:]  # no máximo os 30 alertas mais recentes
+        vagas = []
+        for i in ids:
+            _, dados = imap.fetch(i, "(BODY.PEEK[])")
+            mensagem = email.message_from_bytes(dados[0][1], policy=email.policy.default)
+            fonte = "LinkedIn" if "linkedin" in (mensagem.get("From") or "").lower() else "Indeed"
+            parte = mensagem.get_body(preferencelist=("html",))
+            if parte is not None:
+                vagas += vagas_do_html(parte.get_content(), fonte)
+        imap.logout()
+        return vagas, len(ids)
+    except Exception as erro:
+        print(f"E-mail falhou: {erro}", file=sys.stderr)
+        return [], 0
+
+
+def buscar_email():
+    vagas = []
+    for v in ler_alertas_email()[0]:
+        remoto = "remot" in v["local"].lower()
+        if not (remoto or "franca" in v["local"].lower()):
+            continue
+        if NIVEL_ALTO.search(v["titulo"]) or not na_area(v["titulo"]):
+            continue
+        stack = classificar_stack(v["titulo"], "")
+        if stack is None:
+            continue
+        vagas.append({**v, "local": "Remoto" if remoto else v["local"], "tipo": "não informado", "stack": stack})
+    return vagas
+
+
 def abrir_banco():
     banco = sqlite3.connect(BANCO)
     banco.execute(
@@ -368,11 +455,18 @@ def enviar(webhook, mensagem):
 
 def main():
     teste = "--teste" in sys.argv
+    if "--email" in sys.argv:
+        vagas, quantos = ler_alertas_email()
+        print(f"{quantos} e-mails de alerta lidos, {len(vagas)} vagas encontradas neles (antes dos filtros):")
+        for v in vagas:
+            print(f"- {v['titulo']} | {v['empresa']} | {v['local']} | {v['fonte']}")
+        return
     PASTA.mkdir(parents=True, exist_ok=True)
     banco = abrir_banco()
 
     # a Gupy vem por último: quando a mesma vaga aparece em dois lugares, fica a versão com os dados da Gupy
-    encontradas = {v["id"]: v for v in buscar_remotar() + buscar_programathor() + buscar_github() + buscar_gupy()}
+    fontes = buscar_email() + buscar_remotar() + buscar_programathor() + buscar_github() + buscar_gupy()
+    encontradas = {v["id"]: v for v in fontes}
     vistas = {linha[0] for linha in banco.execute("SELECT id FROM vistas")}
     # algumas empresas publicam a mesma vaga várias vezes: mesma empresa + mesmo título conta como uma só
     novas, ja_tem = [], set()
