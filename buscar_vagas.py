@@ -5,6 +5,9 @@ Só script, sem IA. As vagas já enviadas ficam em vagas.db para não repetir.
 Uso: buscar_vagas.py           -> busca e manda no Discord
      buscar_vagas.py --teste   -> só mostra no terminal, não manda nem marca como vista
 """
+import base64
+import datetime
+import html
 import json
 import os
 import re
@@ -18,7 +21,8 @@ from pathlib import Path
 PASTA = Path(os.environ.get("VAGAS_DIR", Path.home() / "vagas"))
 BANCO = PASTA / "vagas.db"
 ARQUIVO_WEBHOOK = PASTA / "webhook_vagas"
-MAX_POR_EXECUCAO = 15  # o que passar disso fica para a próxima execução
+MAX_POR_EXECUCAO = 25  # o que passar disso fica para a próxima execução
+DIAS_MAXIMOS = 30  # vagas publicadas há mais tempo que isso ficam de fora
 
 TERMOS_GUPY = [
     "desenvolvedor back-end",
@@ -31,6 +35,17 @@ TERMOS_GUPY = [
     "estágio programação",
 ]
 REPOS_GITHUB = ["backend-br/vagas"]
+PAGINAS_PROGRAMATHOR = [
+    "https://programathor.com.br/jobs?expertise=J%C3%BAnior",
+    "https://programathor.com.br/jobs?expertise=Est%C3%A1gio",
+]
+TERMOS_REMOTAR = [
+    "desenvolvedor junior",
+    "desenvolvedor back-end",
+    "desenvolvedor full stack",
+    "desenvolvedor node",
+    "estágio desenvolvimento",
+]
 
 # Título com nível acima de júnior fica de fora
 NIVEL_ALTO = re.compile(
@@ -44,7 +59,8 @@ DESENVOLVIMENTO = re.compile(
 )
 # Vaga só de front-end, mobile, QA, design ou suporte fica de fora (full stack e back-end ficam)
 FORA_DA_AREA = re.compile(
-    r"front.?end|mobile|android|\bios\b|flutter|react native|\bqa\b|design|\bux\b|suporte|\bsap\b|salesforce",
+    r"front.?end|mobile|android|\bios\b|flutter|react native|angular|\bvue|\bqa\b|design|\bux\b|suporte|\bsap\b"
+    r"|salesforce|power platform|low.?code|\brpa\b|wordpress",
     re.I,
 )
 BACK_OU_FULL = re.compile(r"back.?end|full.?stack|node|\bapi", re.I)
@@ -102,6 +118,19 @@ def baixar(url):
     pedido = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (busca pessoal de vagas)"})
     with urllib.request.urlopen(pedido, timeout=30) as resposta:
         return resposta.read().decode("utf-8")
+
+
+def id_gupy(url):
+    """Vagas da Gupy aparecem em outros sites com o mesmo número dentro do link. Assim a mesma vaga não chega duas vezes."""
+    achado = re.search(r"gupy\.io/job/([A-Za-z0-9_=-]+)", url or "")
+    if not achado:
+        return None
+    try:
+        codigo = achado.group(1)
+        dados = json.loads(base64.urlsafe_b64decode(codigo + "=" * (-len(codigo) % 4)))
+        return f"gupy:{dados['jobId']}"
+    except Exception:
+        return None
 
 
 def buscar_gupy():
@@ -182,6 +211,94 @@ def buscar_github():
     return vagas
 
 
+def sem_tags(texto):
+    return html.unescape(re.sub(r"<[^>]+>", " ", texto or "")).strip()
+
+
+def buscar_programathor():
+    """Programathor: só vagas de tecnologia. A página de busca já vem filtrada por nível."""
+    vagas = []
+    for url in PAGINAS_PROGRAMATHOR:
+        try:
+            pagina = baixar(url)
+        except Exception as erro:
+            print(f"Programathor falhou em {url}: {erro}", file=sys.stderr)
+            continue
+        for link, cartao in re.findall(r'<div class="cell-list[^"]*">\s*<a href="(/jobs/\d+[^"]*)">(.*?)</a>', pagina, re.S):
+            if "vencida" in cartao.lower():  # vaga encerrada
+                continue
+            titulo = sem_tags(re.search(r"<h3[^>]*>(.*?)</h3>", cartao, re.S).group(1)).replace("NOVA", "").strip()
+            # cada informação vem num <span> com um ícone que diz o que ela é
+            info = {icone: sem_tags(texto) for icone, texto in re.findall(r"<span><i class='([^']+)'></i>(.*?)</span>", cartao, re.S)}
+            local = next((v for k, v in info.items() if "map-marker" in k), "")
+            empresa = next((v for k, v in info.items() if "briefcase" in k), "")
+            contrato = next((v for k, v in info.items() if "file-alt" in k), "não informado")
+            tecnologias = re.findall(r"tag-list[^>]*>([^<]+)<", cartao)
+            remoto = "remoto" in local.lower()
+            if not (remoto or "franca" in local.lower()):
+                continue
+            if NIVEL_ALTO.search(titulo) or not na_area(titulo):
+                continue
+            stack = classificar_stack(titulo, " ".join(tecnologias))
+            if stack is None:
+                continue
+            vagas.append({
+                "id": "programathor:" + re.search(r"/jobs/(\d+)", link).group(1),
+                "titulo": titulo,
+                "empresa": empresa,
+                "local": "Remoto" if remoto else local,
+                "tipo": contrato,
+                "url": "https://programathor.com.br" + link,
+                "fonte": "Programathor",
+                "stack": stack,
+            })
+        time.sleep(2)
+    return vagas
+
+
+def buscar_remotar():
+    """Remotar: vagas remotas no Brasil. Usa o mesmo endereço de dados que o site usa para mostrar a busca."""
+    vagas = []
+    for termo in TERMOS_REMOTAR:
+        url = "https://api.remotar.com.br/jobs?active=true&page=1&search=" + urllib.parse.quote(termo)
+        try:
+            lista = json.loads(baixar(url))["data"]
+        except Exception as erro:
+            print(f"Remotar falhou no termo '{termo}': {erro}", file=sys.stderr)
+            continue
+        for v in lista:
+            titulo = (v.get("title") or "").strip()
+            if v.get("type") != "remote" and (v.get("city") or "").strip().lower() != "franca":
+                continue
+            try:
+                publicada = datetime.datetime.fromisoformat(v["createdAt"])
+                if datetime.datetime.now(publicada.tzinfo) - publicada > datetime.timedelta(days=DIAS_MAXIMOS):
+                    continue
+            except (KeyError, TypeError, ValueError):
+                pass
+            if NIVEL_ALTO.search(titulo) or not na_area(titulo):
+                continue
+            requisitos = " ".join(r.get("description") or "" for r in v.get("jobRequirements") or [])
+            texto = " ".join([v.get("subtitle") or "", sem_tags(v.get("description")), requisitos])
+            stack = classificar_stack(titulo, texto)
+            if stack is None:
+                continue
+            link = v.get("externalLink") if v.get("isExternalLink") and v.get("externalLink") else f"https://remotar.com.br/job/{v['id']}"
+            empresa = (v.get("company") or {}).get("name") or v.get("companyDisplayName") or ""
+            vagas.append({
+                "id": id_gupy(link) or f"remotar:{v['id']}",
+                "titulo": titulo,
+                "empresa": empresa,
+                "local": "Remoto" if v.get("type") == "remote" else "Franca",
+                "tipo": "não informado",
+                "url": link,
+                "fonte": "Remotar",
+                "stack": stack,
+            })
+        time.sleep(2)
+    return vagas
+
+
 def abrir_banco():
     banco = sqlite3.connect(BANCO)
     banco.execute(
@@ -253,9 +370,16 @@ def main():
     PASTA.mkdir(parents=True, exist_ok=True)
     banco = abrir_banco()
 
-    encontradas = {v["id"]: v for v in buscar_gupy() + buscar_github()}
+    # a Gupy vem por último: quando a mesma vaga aparece em dois lugares, fica a versão com os dados da Gupy
+    encontradas = {v["id"]: v for v in buscar_remotar() + buscar_programathor() + buscar_github() + buscar_gupy()}
     vistas = {linha[0] for linha in banco.execute("SELECT id FROM vistas")}
-    novas = [v for i, v in encontradas.items() if i not in vistas]
+    # algumas empresas publicam a mesma vaga várias vezes: mesma empresa + mesmo título conta como uma só
+    novas, ja_tem = [], set()
+    for i, v in encontradas.items():
+        chave = (v["empresa"].lower(), v["titulo"].lower())
+        if i not in vistas and chave not in ja_tem:
+            novas.append(v)
+            ja_tem.add(chave)
     # sua stack primeiro; dentro de cada grupo, júnior e estágio primeiro
     novas.sort(key=lambda v: (not v["stack"].startswith("sua stack"), not NIVEL_JUNIOR.search(v["titulo"])))
     enviar_agora = novas[:MAX_POR_EXECUCAO]
