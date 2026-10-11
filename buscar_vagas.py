@@ -33,6 +33,11 @@ BUSCA_EMAIL = "from:(jobalerts-noreply@linkedin.com OR indeed.com) newer_than:3d
 LINKS_GENERICOS = re.compile(r"^(ver vaga|ver todas|candidat|view job|see all|apply|saiba mais|gerenciar|ver mais)", re.I)
 MAX_POR_EXECUCAO = 25  # o que passar disso fica para a próxima execução
 DIAS_MAXIMOS = 30  # vagas publicadas há mais tempo que isso ficam de fora
+LIMITE_DESCRICAO = 4000  # caracteres da descrição guardados por vaga
+# Arquivo de entrega: as vagas enviadas nos últimos dias, com descrição, para outro programa ler
+# (na VPS, o assistente de IA lê esse arquivo, só com permissão de leitura). Se a pasta não existir, é pulado.
+ARQUIVO_ENTREGA = Path(os.environ.get("VAGAS_ENTREGA", "/srv/vagas-entrega/novas.json"))
+DIAS_NA_ENTREGA = 3
 
 # Fontes ligadas (True) e desligadas (False)
 FONTES = {
@@ -188,6 +193,7 @@ def buscar_gupy():
                 "url": v.get("jobUrl", ""),
                 "fonte": "Gupy",
                 "stack": stack,
+                "descricao": sem_tags(v.get("description"))[:LIMITE_DESCRICAO],
             })
         time.sleep(2)  # sem pressa, para não sobrecarregar o site
     return vagas
@@ -227,6 +233,7 @@ def buscar_github():
                 "url": item["html_url"],
                 "fonte": "GitHub",
                 "stack": stack,
+                "descricao": (item.get("body") or "")[:LIMITE_DESCRICAO],
             })
     return vagas
 
@@ -271,6 +278,7 @@ def buscar_programathor():
                 "url": "https://programathor.com.br" + link,
                 "fonte": "Programathor",
                 "stack": stack,
+                "descricao": "Tecnologias: " + ", ".join(tecnologias),
             })
         time.sleep(2)
     return vagas
@@ -314,6 +322,7 @@ def buscar_remotar():
                 "url": link,
                 "fonte": "Remotar",
                 "stack": stack,
+                "descricao": texto[:LIMITE_DESCRICAO],
             })
         time.sleep(2)
     return vagas
@@ -392,7 +401,8 @@ def buscar_email():
         stack = classificar_stack(v["titulo"], "")
         if stack is None:
             continue
-        vagas.append({**v, "local": "Remoto" if remoto else v["local"], "tipo": "não informado", "stack": stack})
+        vagas.append({**v, "local": "Remoto" if remoto else v["local"], "tipo": "não informado", "stack": stack,
+                      "descricao": "O alerta de e-mail só traz título, empresa e local."})
     return vagas
 
 
@@ -507,6 +517,26 @@ def main():
         [(v["id"], v["fonte"], v["titulo"], v["empresa"], v["url"]) for v in enviar_agora],
     )
     banco.commit()
+    atualizar_entrega(enviar_agora)
+
+
+def atualizar_entrega(vagas):
+    """Acrescenta as vagas enviadas ao arquivo de entrega e tira as de mais de DIAS_NA_ENTREGA dias."""
+    if not ARQUIVO_ENTREGA.parent.is_dir():
+        return
+    agora = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        anteriores = json.loads(ARQUIVO_ENTREGA.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        anteriores = []
+    limite = agora - datetime.timedelta(days=DIAS_NA_ENTREGA)
+    recentes = [v for v in anteriores if datetime.datetime.fromisoformat(v["enviada_em"]) > limite]
+    recentes += [{**v, "enviada_em": agora.isoformat(timespec="seconds")} for v in vagas]
+    # grava num arquivo temporário e troca no fim, para quem estiver lendo nunca pegar o arquivo pela metade
+    temporario = ARQUIVO_ENTREGA.with_suffix(".tmp")
+    temporario.write_text(json.dumps(recentes, ensure_ascii=False, indent=1), encoding="utf-8")
+    temporario.chmod(0o640)
+    temporario.replace(ARQUIVO_ENTREGA)
 
 
 if __name__ == "__main__":

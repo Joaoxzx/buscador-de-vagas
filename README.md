@@ -18,6 +18,7 @@ Gupy + GitHub + alertas do LinkedIn e Indeed  →  filtro (nível, local, área,
 - **Stack:** o script lê a descrição, os requisitos ou as tecnologias de cada vaga, conforme o que o site mostra. Vaga de outra linguagem (Java, .NET, PHP, Go…) sem Node ou TypeScript fica de fora, exceto estágio e trainee, em que a empresa costuma ensinar. Cada vaga chega marcada como "sua stack", "stack mista" ou "stack não informada".
 - **Prioridade:** primeiro as da sua stack; dentro de cada grupo, as com júnior, estágio, trainee ou "nível I" no título.
 - **Mensagem:** uma só, com um cartão por grupo (sua stack, stack mista, stack não informada e estágio de outra stack) e o título de cada vaga como link.
+- **Arquivo de entrega:** as vagas enviadas nos últimos 3 dias, com a descrição, ficam em `/srv/vagas-entrega/novas.json`. Na VPS, um assistente de IA lê esse arquivo (só leitura) e escolhe as que mais combinam com o currículo. Se a pasta não existir, essa parte é pulada.
 - **Sem repetição:** as vagas enviadas ficam num banco SQLite (`vagas.db`). Cada execução manda só as novas, no máximo 25. O que passar disso fica para a próxima.
 
 ## Decisões
