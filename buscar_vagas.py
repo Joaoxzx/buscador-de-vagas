@@ -167,6 +167,15 @@ def id_gupy(url):
         return None
 
 
+def link_curto_gupy(url):
+    """Troca o link longo da Gupy (com um código que parece token e é escondido por ferramentas de segurança)
+    pelo link curto com o número da vaga, que abre a mesma página: https://empresa.gupy.io/jobs/12345"""
+    numero = id_gupy(url)
+    if not numero:
+        return url
+    return f"https://{urllib.parse.urlparse(url).netloc}/jobs/{numero.split(':')[1]}"
+
+
 def paginas_gupy():
     """Os endereços de busca: cada termo só com vagas remotas (algumas páginas), mais as vagas de Franca."""
     base = "https://portal.gupy.io/job-search/term="
@@ -213,7 +222,7 @@ def buscar_gupy():
                 "empresa": v.get("careerPageName", "").strip(),
                 "local": local,
                 "tipo": TIPOS_GUPY.get(v.get("type"), "não informado"),
-                "url": v.get("jobUrl", ""),
+                "url": link_curto_gupy(v.get("jobUrl", "")),
                 "fonte": "Gupy",
                 "stack": stack,
                 "descricao": sem_tags(v.get("description"))[:LIMITE_DESCRICAO],
@@ -343,7 +352,7 @@ def buscar_remotar():
                 "empresa": empresa,
                 "local": "Remoto" if v.get("type") == "remote" else "Franca",
                 "tipo": "não informado",
-                "url": link,
+                "url": link_curto_gupy(link),
                 "fonte": "Remotar",
                 "stack": stack,
                 "descricao": texto[:LIMITE_DESCRICAO],
