@@ -1,20 +1,19 @@
 # Buscador de vagas
 
-Script em Python que procura vagas de desenvolvimento júnior e estágio em quatro sites (Gupy, Remotar, Programathor e GitHub), junta tudo sem repetir e manda as vagas novas numa mensagem só no Discord. Roda por cron numa VPS Linux, sem IA e sem dependências externas.
+Script em Python que procura vagas de desenvolvimento júnior e estágio na Gupy, no GitHub e nos alertas de e-mail do LinkedIn e do Indeed, junta tudo sem repetir e manda as vagas novas numa mensagem só no Discord. Roda por cron numa VPS Linux, sem IA e sem dependências externas.
 
 ```
-Gupy + Remotar + Programathor + GitHub  →  filtro (nível, local, área, stack)  →  SQLite (já enviadas?)  →  webhook do Discord
+Gupy + GitHub + alertas do LinkedIn e Indeed  →  filtro (nível, local, área, stack)  →  SQLite (já enviadas?)  →  webhook do Discord
 ```
 
 ## O que ele faz
 
-- **Fontes:**
+- **Fontes** (liga e desliga em `FONTES`, no começo do script):
   - **Gupy:** a página de busca do portal (8 termos, como "desenvolvedor back-end", "desenvolvedor full stack" e "estágio desenvolvimento").
-  - **Remotar:** vagas remotas no Brasil, pelo mesmo endereço de dados que o site usa na busca. Só vagas dos últimos 30 dias.
-  - **Programathor:** só vagas de tecnologia, nas páginas de júnior e estágio. Vagas encerradas ficam de fora.
   - **GitHub:** as issues abertas de [backend-br/vagas](https://github.com/backend-br/vagas), pela API pública.
+  - **Remotar** e **Programathor:** o código continua aqui, mas **desligado**. Testando os links, o Remotar trazia muito anúncio sem conferência de quem publica (vagas repetidas, anúncios em massa, empresas sem página) e o Programathor quase não tinha vaga júnior. Preferi menos vagas e mais confiáveis.
   - **Alertas de e-mail (LinkedIn e Indeed):** os dois proíbem robô no site, então o script lê os alertas que eles mandam por e-mail, por IMAP, só os dos últimos 3 dias. Só leitura: a caixa é aberta em modo somente leitura e as mensagens são lidas com `BODY.PEEK`, então nada é marcado como lido, apagado ou respondido. É opcional: sem os arquivos `gmail_usuario` e `gmail_senha_app`, essa parte é pulada.
-- **Sem duplicar entre sites:** muitas vagas do Remotar são da Gupy. O script lê o número da vaga dentro do link da Gupy e reconhece que é a mesma. Vagas com mesma empresa e mesmo título também contam como uma só.
+- **Sem duplicar entre sites:** quando uma vaga da Gupy aparece em outro site, o script lê o número dela dentro do link e reconhece que é a mesma. Vagas com mesma empresa e mesmo título também contam como uma só.
 - **Filtro:** só vagas remotas ou em Franca-SP, só de desenvolvimento back-end ou full stack, e sem pleno, sênior, especialista ou lead. Vagas só de front-end (inclusive Angular e Vue), mobile, QA, design, suporte ou low-code ficam de fora. Vaga sem nível no título entra, para decidir na hora.
 - **Stack:** o script lê a descrição, os requisitos ou as tecnologias de cada vaga, conforme o que o site mostra. Vaga de outra linguagem (Java, .NET, PHP, Go…) sem Node ou TypeScript fica de fora, exceto estágio e trainee, em que a empresa costuma ensinar. Cada vaga chega marcada como "sua stack", "stack mista" ou "stack não informada".
 - **Prioridade:** primeiro as da sua stack; dentro de cada grupo, as com júnior, estágio, trainee ou "nível I" no título.

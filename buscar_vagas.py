@@ -34,6 +34,15 @@ LINKS_GENERICOS = re.compile(r"^(ver vaga|ver todas|candidat|view job|see all|ap
 MAX_POR_EXECUCAO = 25  # o que passar disso fica para a próxima execução
 DIAS_MAXIMOS = 30  # vagas publicadas há mais tempo que isso ficam de fora
 
+# Fontes ligadas (True) e desligadas (False)
+FONTES = {
+    "email": True,          # alertas do LinkedIn e do Indeed
+    "gupy": True,
+    "github": True,
+    "remotar": False,       # desligado: junta anúncio de qualquer lugar sem conferir quem publica
+    "programathor": False,  # desligado: quase não tem vaga júnior
+}
+
 TERMOS_GUPY = [
     "desenvolvedor back-end",
     "desenvolvedor backend",
@@ -465,8 +474,9 @@ def main():
     banco = abrir_banco()
 
     # a Gupy vem por último: quando a mesma vaga aparece em dois lugares, fica a versão com os dados da Gupy
-    fontes = buscar_email() + buscar_remotar() + buscar_programathor() + buscar_github() + buscar_gupy()
-    encontradas = {v["id"]: v for v in fontes}
+    buscas = [("email", buscar_email), ("remotar", buscar_remotar), ("programathor", buscar_programathor),
+              ("github", buscar_github), ("gupy", buscar_gupy)]
+    encontradas = {v["id"]: v for nome, buscar in buscas if FONTES[nome] for v in buscar()}
     vistas = {linha[0] for linha in banco.execute("SELECT id FROM vistas")}
     # algumas empresas publicam a mesma vaga várias vezes: mesma empresa + mesmo título conta como uma só
     novas, ja_tem = [], set()
