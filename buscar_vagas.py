@@ -92,7 +92,8 @@ TERMOS_REMOTAR = [
 
 # Título com nível acima de pleno fica sempre de fora
 NIVEL_ALTO = re.compile(
-    r"\b(s[êe]nior|sr|especialista|lead|l[íi]der|coordenador|gerente|staff|master|arquitet[oa]|iii)\b",
+    r"\b(s[êe]nior|sr|especialista|lead|l[íi]der|coordenador|gerente|staff|master|arquitet[oa]|iii"
+    r"|chief|principal|head|diretor|director)\b",
     re.I,
 )
 # Pleno só entra quando a vaga é da sua stack (lá a chance é real); quem decide se vale tentar é a leitura da descrição
